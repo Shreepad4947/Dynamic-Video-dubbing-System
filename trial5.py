@@ -13,6 +13,7 @@ import json
 import sys
 import tempfile
 import uuid
+import moviepy.editor as mpe
 from dotenv import load_dotenv
 import fire
 import html
@@ -150,16 +151,7 @@ def parse_sentence_with_speaker(json, lang):
 
 
 def translate_text(input, targetLang, sourceLang=None):
-    """Translates from sourceLang to targetLang. If sourceLang is empty,
-    it will be auto-detected.
-    Args:
-        sentence (String): Sentence to translate
-        targetLang (String): i.e. "en"
-        sourceLang (String, optional): i.e. "es" Defaults to None.
-    Returns:
-        String: translated text
-    """
-
+   
     translate_client = translate.Client()
     result = translate_client.translate(
         input, target_language=targetLang, source_language=sourceLang)
@@ -167,16 +159,8 @@ def translate_text(input, targetLang, sourceLang=None):
     return html.unescape(result['translatedText'])
 
 
-def speak(text, languageCode, voiceName=None, speakingRate=1):
-    """Converts text to audio
-    Args:
-        text (String): Text to be spoken
-        languageCode (String): Language (i.e. "en")
-        voiceName: (String, optional): See https://cloud.google.com/text-to-speech/docs/voices
-        speakingRate: (int, optional): speed up or slow down speaking
-    Returns:
-        bytes : Audio in wav format
-    """
+def speak(text, languageCode, voiceName=None, speakingRate=1.1):
+    
 
     # Instantiates a client
     client = texttospeech.TextToSpeechClient()
@@ -188,7 +172,7 @@ def speak(text, languageCode, voiceName=None, speakingRate=1):
     # voice gender ("neutral")
     if not voiceName:
         voice = texttospeech.VoiceSelectionParams(
-            language_code=languageCode, ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
+            language_code=languageCode, ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
         )
     else:
         voice = texttospeech.VoiceSelectionParams(
@@ -213,23 +197,23 @@ def speak(text, languageCode, voiceName=None, speakingRate=1):
 
 
 def speakUnderDuration(text, languageCode, durationSecs, voiceName=None):
-    """Speak text within a certain time limit.
-    If audio already fits within duratinSecs, no changes will be made.
-    Args:
-        text (String): Text to be spoken
-        languageCode (String): language code, i.e. "en"
-        durationSecs (int): Time limit in seconds
-        voiceName (String, optional): See https://cloud.google.com/text-to-speech/docs/voices
-    Returns:
-        bytes : Audio in wav format
-    """
+    
     baseAudio = speak(text, languageCode, voiceName=voiceName)
     assert len(baseAudio)
-    f = tempfile.NamedTemporaryFile(mode="w+b")
-    f.write(baseAudio)
-    f.flush()
-    baseDuration = AudioSegment.from_mp3(f.name).duration_seconds
-    f.close()
+
+    with open(os.path.join("Output/audioClips/new.mp3"), 'wb') as d: 
+      d.write(baseAudio)
+      d.flush()
+      baseDuration = AudioSegment.from_mp3(file=d.name).duration_seconds
+      print(baseDuration)
+      d.close()
+
+
+    # f = tempfile.NamedTemporaryFile(mode="w+b")
+    # f.write(baseAudio)
+    # f.flush()
+    # baseDuration = AudioSegment.from_mp3(f.name).duration_seconds
+    # f.close()
     ratio = baseDuration / durationSecs
 
     # if the audio fits, return it
@@ -246,25 +230,7 @@ def speakUnderDuration(text, languageCode, durationSecs, voiceName=None):
 
 
 def toSrt(transcripts, charsPerLine=60):
-    """Converts transcripts to SRT an SRT file. Only intended to work
-    with English.
-    Args:
-        transcripts ({}): Transcripts returned from Speech API
-        charsPerLine (int): max number of chars to write per line
-    Returns:
-        String srt data
-    """
-
-    """
-    SRT files have this format:
-    [Section of subtitles number]
-    [Time the subtitle is displayed begins] –> [Time the subtitle is displayed ends]
-    [Subtitle]
-    Timestamps are in the format:
-    [hours]: [minutes]: [seconds], [milliseconds]
-    Note: about 60 characters comfortably fit on one line
-    for resolution 1920x1080 with font size 40 pt.
-    """
+    
 
     def _srtTime(seconds):
         millisecs = seconds * 1000
@@ -307,6 +273,8 @@ def stitch_audio(sentences, audioDir, movieFile, outFile, srtPath=None, overlayG
     # Grab the computer-generated audio file
     segments = [AudioSegment.from_mp3(
         os.path.join(audioDir, x)) for x in audioFiles]
+
+      
     # Also, grab the original audio
     dubbed = AudioSegment.from_file(movieFile)
 
@@ -314,15 +282,51 @@ def stitch_audio(sentences, audioDir, movieFile, outFile, srtPath=None, overlayG
     for sentence, segment in zip(sentences, segments):
         dubbed = dubbed.overlay(
             segment, position=sentence['start_time'] * 1000, gain_during_overlay=overlayGain)
+
+    # sound0 = AudioSegment.from_file("Output/Test/accompaniment.wav", format="wav")       
+    # sound1 = AudioSegment.from_file("Output/audioClips/en-US/0.mp3", format="mp3")
+    # sound2 = AudioSegment.from_file("Output/audioClips/en-US/1.mp3", format="mp3")     
+
+    # final = sound0.overlay(sound1,position=0)
+    # audioFile = final.overlay(sound2,position = 25000)
+    # combined = sound1 + sound2
+    
+
+    dubbed.export("Output/audioClips/fr/new.mp3", format="mp3")
+    # with open(os.path.join("Output/audioClips/fr/new.mp3"), 'wb') as f:
+    #             f.write(audioFile)
+
     # Write the final audio to a temporary output file
-    audioFile = tempfile.NamedTemporaryFile()
-    dubbed.export(audioFile)
-    audioFile.flush()
+    # audioFile = tempfile.NamedTemporaryFile()
+    # dubbed.export(audioFile)
+    # audioFile.flush()
+
+
+
+    my_clip = mpe.VideoFileClip(movieFile)
+    audio_background = mpe.AudioFileClip("Output/audioClips/fr/new.mp3")
+    final_clip = my_clip.set_audio(audio_background)
+    final_clip.write_videofile("Output/dubbed.mp4",fps=25)
+
+
+
+
+
 
     # Add the new audio to the video and save it
-    clip = VideoFileClip(movieFile)
-    audio = AudioFileClip(audioFile.name)
-    clip = clip.set_audio(audio)
+    # clip = VideoFileClip(movieFile)
+    # audio = AudioFileClip(combined)
+    
+    # clip = clip.set_audio(audio)
+
+
+
+
+
+
+
+
+
 
     # # Add transcripts, if supplied
     # if srtPath:
@@ -456,4 +460,4 @@ def dub(
     print("Done")
 
 
-dub(videoFile="french.mp4",outputDir="Output",srcLang="fr",targetLangs=["en-US"],speakerCount=1)
+dub(videoFile="test2.mp4",outputDir="Output",srcLang="en-US",targetLangs=["mr"],speakerCount=1)
